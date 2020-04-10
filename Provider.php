@@ -51,14 +51,7 @@ class Provider extends AbstractProvider implements ProviderInterface
                 ]
             );
 
-        return $this->parseAccessToken($response->getBody());
-    }
-
-    protected function parseAccessToken($response)
-    {
-        $data = $response->json();
-
-        return $data['access_token'];
+        return json_decode($response->getBody(), true);
     }
 
     protected function getTokenFields($code)
@@ -92,24 +85,10 @@ class Provider extends AbstractProvider implements ProviderInterface
 
     protected function mapUserToObject(array $user)
     {
-        if (request()->filled("user")) {
-            $userRequest = json_decode(request("user"), true);
-
-            if (array_key_exists("name", $userRequest)) {
-                $user["name"] = $userRequest["name"];
-                $fullName = trim(
-                    ($user["name"]['firstName'] ?? "")
-                    . " "
-                    . ($user["name"]['lastName'] ?? "")
-                );
-            }
-        }
-
         return (new User)
             ->setRaw($user)
             ->map([
                 "id" => $user["sub"],
-                "name" => $fullName ?? null,
                 "email" => $user["email"] ?? null,
             ]);
     }
