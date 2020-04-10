@@ -1,6 +1,6 @@
 {
-    "name": "aiwozhe/laravel-socialite-providers-wechat",
-    "description": "Wechat OAuth2 Provider for Laravel Socialite",
+    "name": "aiwozhe/laravel-socialite-providers-apple",
+    "description": "Apple Sign In OAuth2 Provider for Laravel Socialite",
     "license": "MIT",
     "authors": [{
         "name": "xyxu",
@@ -18,7 +18,7 @@
     },
     "autoload": {
         "psr-4": {
-            "SocialiteProviders\\Wechat\\": ""
+            "SocialiteProviders\\Apple\\": ""
         }
     }
 }

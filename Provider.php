@@ -1,6 +1,6 @@
 <?php
 
-namespace SocialiteProviders\Wechat;
+namespace SocialiteProviders\Apple;
 
 use Laravel\Socialite\Two\ProviderInterface;
 use SocialiteProviders\Manager\OAuth2\AbstractProvider;
@@ -8,132 +8,109 @@ use SocialiteProviders\Manager\OAuth2\User;
 
 class Provider extends AbstractProvider implements ProviderInterface
 {
-    /**
-     * Unique Provider Identifier.
-     */
-    const IDENTIFIER = 'WECHAT';
+    protected $encodingType = PHP_QUERY_RFC3986;
+    protected $scopeSeparator = " ";
 
-    /**
-     * @var string
-     */
-    protected $openId;
-
-    /**
-     * {@inheritdoc}.
-     */
-    protected $scopes = ['snsapi_userinfo'];
-
-    /**
-     * {@inheritdoc}.
-     */
     protected function getAuthUrl($state)
     {
-        return $this->buildAuthUrlFromBase('https://open.weixin.qq.com/connect/oauth2/authorize', $state);
+        return $this->buildAuthUrlFromBase(
+            'https://appleid.apple.com/auth/authorize',
+            $state
+        );
     }
 
-    /**
-     * {@inheritdoc}.
-     */
-    protected function buildAuthUrlFromBase($url, $state)
-    {
-        $query = http_build_query($this->getCodeFields($state), '', '&', $this->encodingType);
-
-        return $url.'?'.$query.'#wechat_redirect';
-    }
-
-    /**
-     * {@inheritdoc}.
-     */
     protected function getCodeFields($state = null)
     {
-        return [
-            'appid'         => $this->clientId, 'redirect_uri' => $this->redirectUrl,
+        $fields = [
+            'client_id' => $this->clientId,
+            'redirect_uri' => $this->redirectUrl,
+            'scope' => $this->formatScopes($this->getScopes(), $this->scopeSeparator),
             'response_type' => 'code',
-            'scope'         => $this->formatScopes($this->scopes, $this->scopeSeparator),
-            'state'         => $state,
+            'response_mode' => 'form_post',
         ];
+
+        if ($this->usesState()) {
+            $fields['state'] = $state;
+        }
+
+        return array_merge($fields, $this->parameters);
     }
 
-    /**
-     * {@inheritdoc}.
-     */
     protected function getTokenUrl()
     {
-        return 'https://api.weixin.qq.com/sns/oauth2/access_token';
+        return "https://appleid.apple.com/auth/token";
     }
 
-    /**
-     * {@inheritdoc}.
-     */
+    public function getAccessTokenResponse($code)
+    {
+        $response = $this->getHttpClient()
+            ->post(
+                $this->getTokenUrl(),
+                [
+                    'form_params' => $this->getTokenFields($code),
+                ]
+            );
+
+        return $this->parseAccessToken($response->getBody());
+    }
+
+    protected function parseAccessToken($response)
+    {
+        $data = $response->json();
+
+        return $data['access_token'];
+    }
+
+    protected function getTokenFields($code)
+    {
+        $fields = parent::getTokenFields($code);
+        $fields["grant_type"] = "authorization_code";
+
+        return $fields;
+    }
+
     protected function getUserByToken($token)
     {
-        if (in_array('snsapi_base', $this->scopes)) {
-            $user = ['openid' => $this->openId];
-        } else {
-            $response = $this->getHttpClient()->get('https://api.weixin.qq.com/sns/userinfo', [
-                'query' => [
-                    'access_token' => $token,
-                    'openid'       => $this->openId,
-                    'lang'         => 'zh_CN',
-                ],
-            ]);
+        $claims = explode('.', $token)[1];
 
-            $user = json_decode($response->getBody(), true);
-            
-            // 判断请求是否成功，请求失败则抛出异常
-            if (!empty($user['errcode'])) {
-                throw new \Exception($user['errmsg']);
+        return json_decode(base64_decode($claims), true);
+    }
+
+    public function user()
+    {
+        $response = $this->getAccessTokenResponse($this->getCode());
+
+        $user = $this->mapUserToObject($this->getUserByToken(
+            Arr::get($response, 'id_token')
+        ));
+
+        return $user
+            ->setToken(Arr::get($response, 'access_token'))
+            ->setRefreshToken(Arr::get($response, 'refresh_token'))
+            ->setExpiresIn(Arr::get($response, 'expires_in'));
+    }
+
+    protected function mapUserToObject(array $user)
+    {
+        if (request()->filled("user")) {
+            $userRequest = json_decode(request("user"), true);
+
+            if (array_key_exists("name", $userRequest)) {
+                $user["name"] = $userRequest["name"];
+                $fullName = trim(
+                    ($user["name"]['firstName'] ?? "")
+                    . " "
+                    . ($user["name"]['lastName'] ?? "")
+                );
             }
         }
 
-        return $user;
-    }
-
-    /**
-     * {@inheritdoc}.
-     */
-    protected function mapUserToObject(array $user)
-    {
-        return (new User())->setRaw($user)->map([
-            'id'       => $user['openid'],
-            'unionid' => $user['unionid'] ?? null,
-            'nickname' => $user['nickname'] ?? null,
-            'avatar'   => $user['headimgurl'] ?? null,
-            'name'     => null,
-            'email'    => null,
-        ]);
-    }
-
-    /**
-     * {@inheritdoc}.
-     */
-    protected function getTokenFields($code)
-    {
-        return [
-            'appid' => $this->clientId, 'secret' => $this->clientSecret,
-            'code'  => $code, 'grant_type' => 'authorization_code',
-        ];
-    }
-
-    /**
-     * {@inheritdoc}.
-     */
-    public function getAccessTokenResponse($code)
-    {
-        $response = $this->getHttpClient()->get($this->getTokenUrl(), [
-            'query' => $this->getTokenFields($code),
-        ]);
-
-        $this->credentialsResponseBody = json_decode($response->getBody(), true);
-        
-        // 判断请求是否成功，请求失败则抛出异常
-        if (!empty($this->credentialsResponseBody['errcode'])) {
-            throw new \Exception($this->credentialsResponseBody['errmsg']);
-        }
-        
-        // 更新openid
-        $this->openId = $this->credentialsResponseBody['openid'] ?? null;
-
-        return $this->credentialsResponseBody;
+        return (new User)
+            ->setRaw($user)
+            ->map([
+                "id" => $user["sub"],
+                "name" => $fullName ?? null,
+                "email" => $user["email"] ?? null,
+            ]);
     }
 }

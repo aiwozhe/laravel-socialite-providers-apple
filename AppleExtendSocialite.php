@@ -1,10 +1,10 @@
 <?php
 
-namespace SocialiteProviders\Weixin;
+namespace SocialiteProviders\Apple;
 
 use SocialiteProviders\Manager\SocialiteWasCalled;
 
-class WechatExtendSocialite
+class AppleExtendSocialite
 {
     /**
      * Register the provider.
@@ -14,7 +14,7 @@ class WechatExtendSocialite
     public function handle(SocialiteWasCalled $socialiteWasCalled)
     {
         $socialiteWasCalled->extendSocialite(
-            'wechat', __NAMESPACE__.'\Provider'
+            'apple', __NAMESPACE__.'\Provider'
         );
     }
 }
